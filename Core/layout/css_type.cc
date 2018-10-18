@@ -52,6 +52,10 @@ bool ToFlexDirectionType(const std::string& value, CSSStyleType& type) {
     TRUE_RETURN(CSSFLEX_DIRECTION_COLUMN);
   } else if (value.compare("row") == 0) {
     TRUE_RETURN(CSSFLEX_DIRECTION_ROW);
+  } else if (value.compare("row-reverse") == 0) {
+    TRUE_RETURN(CSSFLEX_DIRECTION_ROW_REVERSE);
+  } else if (value.compare("column-reverse") == 0) {
+    TRUE_RETURN(CSSFLEX_DIRECTION_COLUMN_REVERSE);
   }
   FALSE_RETURN(CSSFLEX_DIRECTION_COLUMN);
 }
@@ -183,12 +187,12 @@ std::string MapCSSType(CSSStyleType type) {
       return "stretch";
     case CSSFLEX_DIRECTION_COLUMN:
       return "column";
-    case CSSFLEX_DIRECTION_COLUMN_REVERS:
-      return "none";
+    case CSSFLEX_DIRECTION_COLUMN_REVERSE:
+      return "column-reverse";
     case CSSFLEX_DIRECTION_ROW:
       return "row";
     case CSSFLEX_DIRECTION_ROW_REVERSE:
-      return "none";
+      return "row-reverse";
     case CSSFLEX_JUSTIFY_FLEX_START:
       return "flex-start";
     case CSSFLEX_JUSTIFY_FLEX_CENTER:
