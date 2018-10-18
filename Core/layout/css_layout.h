@@ -38,10 +38,21 @@ class CSSStaticLayout {
     static void MeasureFixed(LayoutObject* renderer);
 
     static void LayoutWhenDisplayNone(LayoutObject* renderer);
-    static void LayoutRowWrap(LayoutObject* renderer, int width, int height);
+
+    // 布局flex-direction:row类型的
     static void LayoutRow(LayoutObject* renderer, int width, int height);
-    static void LayoutColumnWrap(LayoutObject* renderer, int width, int height);
+    // flex-wrap: nowrap;
+    static void LayoutRowOneLine(LayoutObject* renderer, int width, int height);
+    // flex-wrap: wrap;
+    static void LayoutRowWrap(LayoutObject* renderer, int width, int height);
+
+    // 布局flex-direction:column类型的
     static void LayoutColumn(LayoutObject* renderer, int width, int height);
+    // flex-wrap: nowrap;
+    static void LayoutColumnOneLine(LayoutObject* renderer, int width, int height);
+    // flex-wrap: wrap;
+    static void LayoutColumnWrap(LayoutObject* renderer, int width, int height);
+    
     static void LayoutAbsolute(LayoutObject* parentNode, LayoutObject* renderer,
                                int width, int height);
     static void LayoutFixed(LayoutObject* parentNode, LayoutObject* renderer);
