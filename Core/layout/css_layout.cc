@@ -15,7 +15,7 @@ using namespace std;
 namespace lynx {
 
 //实现order排序的比较函数
-bool CompareFlexOrder(LayoutObject* obj1, LayoutObject* obj2){
+bool CompareFlexOrder(LayoutObject* obj1, LayoutObject* obj2) {
   const CSSStyle* item1_style = &(obj1->css_style());
   const CSSStyle* item2_style = &(obj2->css_style());
   return item1_style->flex_order_ < item2_style->flex_order_;
@@ -658,10 +658,8 @@ void CSSStaticLayout::LayoutRowWrap(LayoutObject* renderer,
   child_list.resize(current_row_without_absolute_count);
   current_row_without_absolute_count = 0;
 
-  //order排序，reverse翻转
-  sort(child_list.begin(),child_list.end(),CompareFlexOrder);
-  if (rflag)
-    reverse(child_list.begin(), child_list.end());
+  // order排序
+  sort(child_list.begin(), child_list.end(), CompareFlexOrder);
 
   for (int index = 0, child_view_count = child_list.size();
        index < child_view_count; index++) {
@@ -740,6 +738,9 @@ void CSSStaticLayout::LayoutRowWrap(LayoutObject* renderer,
       int child_origin_y = item_style->padding_top_ +
                            item_style->border_width_ + total_used_height;
 
+      // row-reverse时，翻转一行中所有元素
+      if (rflag)
+        reverse(child_list.begin() + start, child_list.begin() + index + 1);
       for (int i = start; i <= index; i++) {
         LayoutObject* recalc_child = child_list[i];
         const CSSStyle* recalc_child_style = &(recalc_child->css_style());
@@ -855,10 +856,10 @@ void CSSStaticLayout::LayoutRowOneLine(LayoutObject* renderer,
                    ? true
                    : false;
 
-  //order排序，reverse翻转
-  sort(child_list.begin(),child_list.end(),CompareFlexOrder);
-  if(rflag)
-    reverse(child_list.begin(),child_list.end());
+  // order排序，reverse翻转
+  sort(child_list.begin(), child_list.end(), CompareFlexOrder);
+  if (rflag)
+    reverse(child_list.begin(), child_list.end());
 
   int adjust_width_start = 0;
   int adjust_width_interval = 0;
@@ -1009,10 +1010,8 @@ void CSSStaticLayout::LayoutColumnWrap(LayoutObject* renderer,
   child_list.resize(current_column_without_absolute_count);
   current_column_without_absolute_count = 0;
 
-  //order排序，reverse翻转
-  sort(child_list.begin(),child_list.end(),CompareFlexOrder);
-  if (rflag)
-    reverse(child_list.begin(), child_list.end());
+  // order排序
+  sort(child_list.begin(), child_list.end(), CompareFlexOrder);
 
   for (int index = 0, child_view_count = child_list.size();
        index < child_view_count; index++) {
@@ -1096,6 +1095,10 @@ void CSSStaticLayout::LayoutColumnWrap(LayoutObject* renderer,
                            item_style->border_width_ + total_used_width;
       int child_origin_y = item_style->padding_top_ +
                            item_style->border_width_ + adjust_height_start;
+
+      // column-reverse时，翻转一列中所有元素
+      if (rflag)
+        reverse(child_list.begin() + start, child_list.begin() + index + 1);
       for (int i = start; i <= index; i++) {
         LayoutObject* recalc_child = child_list[i];
         const CSSStyle* recalc_child_style = &(recalc_child->css_style());
@@ -1207,8 +1210,8 @@ void CSSStaticLayout::LayoutColumnOneLine(LayoutObject* renderer,
                    ? true
                    : false;
 
-  //order排序，reverse翻转
-  sort(child_list.begin(),child_list.end(),CompareFlexOrder);
+  // order排序，reverse翻转
+  sort(child_list.begin(), child_list.end(), CompareFlexOrder);
   if (rflag)
     reverse(child_list.begin(), child_list.end());
 
