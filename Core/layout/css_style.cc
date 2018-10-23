@@ -56,6 +56,7 @@ void CSSStyle::Initialize(CSSStyleConfig* config) {
   (*func_map)["flex-direction"] = &CSSStyle::SetFlexDirection;
   (*func_map)["flexWrap"] = &CSSStyle::SetFlexWrap;
   (*func_map)["flex-wrap"] = &CSSStyle::SetFlexWrap;
+  (*func_map)["order"] = &CSSStyle::SetFlexOrder;
   (*func_map)["justifyContent"] = &CSSStyle::SetFlexJustify;
   (*func_map)["justify-content"] = &CSSStyle::SetFlexJustify;
   (*func_map)["alignItems"] = &CSSStyle::SetFlexAlignItem;
@@ -156,6 +157,7 @@ void CSSStyle::Reset() {
   flex_justify_content_ = CSSFLEX_JUSTIFY_FLEX_START;
   flex_align_items_ = CSSFLEX_ALIGN_STRETCH;
   flex_align_self_ = CSSFLEX_ALIGN_AUTO;
+  flex_order_ = 0;
 
   css_position_type_ = CSS_POSITION_RELATIVE;
   css_display_type_ = CSS_DISPLAY_FLEX;

@@ -80,6 +80,8 @@ bool ToFlexWrapType(const std::string& value, CSSStyleType& type) {
     TRUE_RETURN(CSSFLEX_WRAP);
   } else if (value.compare("nowrap") == 0) {
     TRUE_RETURN(CSSFLEX_NOWRAP);
+  } else if (value.compare("wrap-reverse") == 0){
+    TRUE_RETURN(CSSFLEX_WRAP_REVERSE);
   }
   FALSE_RETURN(CSSFLEX_NOWRAP);
 }
@@ -207,6 +209,10 @@ std::string MapCSSType(CSSStyleType type) {
       return "wrap";
     case CSSFLEX_NOWRAP:
       return "nowrap";
+    case CSSFLEX_WRAP_REVERSE:
+      return "wrap-reverse";
+    case CSSFLEX_ORDER:
+      return "order";
     case CSS_POSITION_RELATIVE:
       return "relative";
     case CSS_POSITION_ABSOLUTE:

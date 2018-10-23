@@ -1,10 +1,10 @@
 // Copyright 2017 The Lynx Authors. All rights reserved.
 
-#include "iostream"
 #include "layout/css_layout.h"
+#include <algorithm>
 #include <vector>
-#include "layout/css_type.h"
 #include "layout/css_style.h"
+#include "layout/css_type.h"
 #include "layout/layout_object.h"
 #ifndef TESTING
 #include "render/render_object.h"
@@ -13,6 +13,13 @@
 using namespace std;
 
 namespace lynx {
+
+//实现order排序的比较函数
+bool CompareFlexOrder(LayoutObject* obj1, LayoutObject* obj2){
+  const CSSStyle* item1_style = &(obj1->css_style());
+  const CSSStyle* item2_style = &(obj2->css_style());
+  return item1_style->flex_order_ < item2_style->flex_order_;
+}
 
 base::Size CSSStaticLayout::Measure(LayoutObject* renderer,
                                     int width_descriptor,
@@ -59,7 +66,6 @@ base::Size CSSStaticLayout::Measure(LayoutObject* renderer,
               : style->ClampHeight(size.height_);
 
   size.Update(w, h);
-  cout<<"width:"<<size.width_<<" height:"<<size.height_<<endl;
   return size;
 }
 
@@ -536,7 +542,7 @@ base::Size CSSStaticLayout::MeasureColumnWrap(LayoutObject* renderer,
         index += 1;
       }
       start = index;
-      current_calc_height = 0;
+      // current_calc_height = 0;
     }
   }
   measured_size.width_ = calc_width;
@@ -615,8 +621,9 @@ void CSSStaticLayout::LayoutRowWrap(LayoutObject* renderer,
   int total_use_width_without_absolute = 0;
 
   // rflag用来判断是否是reverse
-  bool rflag =
-      item_style->flex_direction_ == CSSFLEX_DIRECTION_ROW ? true : false;
+  bool rflag = item_style->flex_direction_ == CSSFLEX_DIRECTION_ROW_REVERSE
+                   ? true
+                   : false;
 
   int start = 0;
   int total_used_height = 0;
@@ -624,33 +631,50 @@ void CSSStaticLayout::LayoutRowWrap(LayoutObject* renderer,
   int current_line_height = 0;
   bool is_line_feed = false;
 
+  // child_list中所有flex-item
+  vector<LayoutObject*> child_list;
+  child_list.reserve(renderer->GetChildCount());
+  // 计算所有flex-item的总width
   for (int index = 0, child_view_count = renderer->GetChildCount();
        index < child_view_count; index++) {
     LayoutObject* child = (LayoutObject*)renderer->Find(index);
     const CSSStyle* child_style = &(child->css_style());
 
-    bool should_child_pass = false;
-    int oldTotalUseWidthWithoutAbsolute = total_use_width_without_absolute;
     if (child_style->css_display_type_ != CSS_DISPLAY_FLEX) {
       child->Layout(0, 0, 0, 0);
-      should_child_pass = true;
+      continue;
     }
     if (child_style->css_position_type_ == CSS_POSITION_ABSOLUTE) {
       LayoutAbsolute(renderer, child, width, height);
-      should_child_pass = true;
+      continue;
     }
     if (child_style->css_position_type_ == CSS_POSITION_FIXED) {
       LayoutFixed(renderer, child);
-      should_child_pass = true;
+      continue;
     }
+    child_list.push_back(child);
+    current_row_without_absolute_count++;
+  }
+  child_list.resize(current_row_without_absolute_count);
+  current_row_without_absolute_count = 0;
 
-    if (!should_child_pass) {
-      current_row_without_absolute_count++;
+  //order排序，reverse翻转
+  sort(child_list.begin(),child_list.end(),CompareFlexOrder);
+  if (rflag)
+    reverse(child_list.begin(), child_list.end());
 
-      total_use_width_without_absolute += child->measured_size_.width_ +
-                                          child_style->margin_left_ +
-                                          child_style->margin_right_;
-    }
+  for (int index = 0, child_view_count = child_list.size();
+       index < child_view_count; index++) {
+    LayoutObject* child = child_list[index];
+    const CSSStyle* child_style = &(child->css_style());
+
+    int oldTotalUseWidthWithoutAbsolute = total_use_width_without_absolute;
+
+    current_row_without_absolute_count++;
+
+    total_use_width_without_absolute += child->measured_size_.width_ +
+                                        child_style->margin_left_ +
+                                        child_style->margin_right_;
 
     if (total_use_width_without_absolute <= available_width) {
       int childHeight = child->measured_size_.height_ +
@@ -662,9 +686,6 @@ void CSSStaticLayout::LayoutRowWrap(LayoutObject* renderer,
     // 遍历到最后一个孩子的时候，不可以跳过layout previous
     // child的操作，否则之前的孩子不能排版
     bool is_last_view = (index == child_view_count - 1);
-    if (should_child_pass && !is_last_view) {
-      continue;
-    }
 
     if (total_use_width_without_absolute > available_width || is_last_view) {
       if (total_use_width_without_absolute > available_width &&
@@ -677,22 +698,23 @@ void CSSStaticLayout::LayoutRowWrap(LayoutObject* renderer,
         current_line_height = available_height;
       }
 
-      int adjust_width_start = rflag ? 0 : available_width;
+      int adjust_width_start = 0;
       int adjust_width_interval = 0;
       if (current_row_without_absolute_count > 0) {
-        if (item_style->flex_justify_content_ == CSSFLEX_JUSTIFY_FLEX_START) {
-          // no action
-        } else if (item_style->flex_justify_content_ ==
-                   CSSFLEX_JUSTIFY_FLEX_END) {
+        if (item_style->flex_justify_content_ == CSSFLEX_JUSTIFY_FLEX_START &&
+            rflag) {
           adjust_width_start =
-              rflag ? available_width - total_use_width_without_absolute
-                    : total_use_width_without_absolute;
+              available_width - total_use_width_without_absolute;
+        } else if (item_style->flex_justify_content_ ==
+                       CSSFLEX_JUSTIFY_FLEX_END &&
+                   !rflag) {
+          adjust_width_start =
+              available_width - total_use_width_without_absolute;
         } else if (item_style->flex_justify_content_ ==
                    CSSFLEX_JUSTIFY_FLEX_CENTER) {
-          int interval = round(
+          adjust_width_start = round(
               (float)(available_width - total_use_width_without_absolute) /
               2.0f);
-          adjust_width_start = rflag ? interval : available_width - interval;
         } else if (total_use_width_without_absolute <= available_width &&
                    item_style->flex_justify_content_ ==
                        CSSFLEX_JUSTIFY_SPACE_BETWEEN) {
@@ -707,38 +729,22 @@ void CSSStaticLayout::LayoutRowWrap(LayoutObject* renderer,
           float interval =
               ((float)(available_width - total_use_width_without_absolute)) /
               (current_row_without_absolute_count * 2);
-          adjust_width_start =
-              rflag ? round(interval) : available_width - round(interval);
+          adjust_width_start = round(interval);
           adjust_width_interval = round(interval * 2);
         }
       }
 
       int max_height = 0;
-      int child_origin_x = 0;
-      if (rflag) {
-        child_origin_x = item_style->padding_left_ + item_style->border_width_ +
-                         adjust_width_start;
-      } else {
-        child_origin_x = adjust_width_start - item_style->padding_right_ -
-                         item_style->border_width_;
-      }
+      int child_origin_x = item_style->padding_left_ +
+                           item_style->border_width_ + adjust_width_start;
       int child_origin_y = item_style->padding_top_ +
                            item_style->border_width_ + total_used_height;
 
       for (int i = start; i <= index; i++) {
-        LayoutObject* recalc_child = (LayoutObject*)renderer->Find(i);
+        LayoutObject* recalc_child = child_list[i];
         const CSSStyle* recalc_child_style = &(recalc_child->css_style());
 
         int align = item_style->flex_align_items_;
-
-        if (recalc_child_style->css_display_type_ != CSS_DISPLAY_FLEX) {
-          recalc_child->Layout(0, 0, 0, 0);
-          continue;
-        }
-        if (recalc_child_style->css_position_type_ == CSS_POSITION_ABSOLUTE ||
-            recalc_child_style->css_position_type_ == CSS_POSITION_FIXED) {
-          continue;
-        }
 
         if (recalc_child_style->flex_align_self_ != CSSFLEX_ALIGN_AUTO) {
           align = recalc_child_style->flex_align_self_;
@@ -746,19 +752,10 @@ void CSSStaticLayout::LayoutRowWrap(LayoutObject* renderer,
 
         int old_child_origin_y = child_origin_y;
 
-        if (rflag) {
-          child_origin_x += recalc_child_style->margin_left_;
-        } else {
-          child_origin_x -= recalc_child_style->margin_right_;
-        }
+        child_origin_x += recalc_child_style->margin_left_;
         child_origin_y += recalc_child_style->margin_top_;
-        if (i > start) {
-          if (rflag) {
-            child_origin_x += adjust_width_interval;
-          } else {
-            child_origin_x -= adjust_width_interval;
-          }
-        }
+        if (i > start)
+          child_origin_x += adjust_width_interval;
 
         int adjust_y = 0;
         int adjust_height = CSS_UNDEFINED;
@@ -782,25 +779,17 @@ void CSSStaticLayout::LayoutRowWrap(LayoutObject* renderer,
                            2.0f);
         }
 
-        int l = rflag ? child_origin_x
-                      : child_origin_x - recalc_child->measured_size_.width_;
+        int l = child_origin_x;
         int t = child_origin_y + adjust_y;
-        int r =
-            rflag ? l + recalc_child->measured_size_.width_ : child_origin_x;
+        int r = l + recalc_child->measured_size_.width_;
         int b = CSS_IS_UNDEFINED(adjust_height)
                     ? t + recalc_child->measured_size_.height_
                     : t + adjust_height;
 
         recalc_child->Layout(l, t, r, b);
 
-        if (rflag) {
-          child_origin_x += recalc_child->measured_size_.width_ +
-                            recalc_child_style->margin_right_;
-        } else {
-          child_origin_x -= recalc_child->measured_size_.width_ +
-                            recalc_child_style->margin_left_;
-        }
-
+        child_origin_x += recalc_child->measured_size_.width_ +
+                          recalc_child_style->margin_right_;
         child_origin_y = old_child_origin_y;
         int child_item_height = (b - t) + recalc_child_style->margin_bottom_ +
                                 recalc_child_style->margin_top_;
@@ -832,9 +821,9 @@ void CSSStaticLayout::LayoutRowOneLine(LayoutObject* renderer,
 
   int current_row_without_absolute_count = 0;
   int total_use_width_without_absolute = 0;
-  // rflag用于判断是否是reverse
-  bool rflag =
-      item_style->flex_direction_ == CSSFLEX_DIRECTION_ROW ? true : false;
+  // child_list中所有flex-item
+  vector<LayoutObject*> child_list;
+  child_list.reserve(renderer->GetChildCount());
 
   // 计算所有flex-item的总width
   for (int index = 0, child_view_count = renderer->GetChildCount();
@@ -854,31 +843,39 @@ void CSSStaticLayout::LayoutRowOneLine(LayoutObject* renderer,
       LayoutFixed(renderer, child);
       continue;
     }
+    child_list.push_back(child);
     current_row_without_absolute_count++;
     total_use_width_without_absolute += child->measured_size_.width_ +
                                         child->css_style().margin_left_ +
                                         child->css_style().margin_right_;
   }
+  child_list.resize(current_row_without_absolute_count);
+  // rflag
+  bool rflag = item_style->flex_direction_ == CSSFLEX_DIRECTION_ROW_REVERSE
+                   ? true
+                   : false;
 
-  int adjust_width_start = rflag ? 0 : available_width;
+  //order排序，reverse翻转
+  sort(child_list.begin(),child_list.end(),CompareFlexOrder);
+  if(rflag)
+    reverse(child_list.begin(),child_list.end());
+
+  int adjust_width_start = 0;
   int adjust_width_interval = 0;
   if (current_row_without_absolute_count > 0) {
-    if (item_style->flex_justify_content_ == CSSFLEX_JUSTIFY_FLEX_START) {
-      // no action
-    } else if (item_style->flex_justify_content_ == CSSFLEX_JUSTIFY_FLEX_END) {
-      adjust_width_start =
-          rflag ? available_width - total_use_width_without_absolute
-                : total_use_width_without_absolute;
+    if (item_style->flex_justify_content_ == CSSFLEX_JUSTIFY_FLEX_START &&
+        rflag) {
+      adjust_width_start = available_width - total_use_width_without_absolute;
+    } else if (item_style->flex_justify_content_ == CSSFLEX_JUSTIFY_FLEX_END &&
+               !rflag) {
+      adjust_width_start = available_width - total_use_width_without_absolute;
     } else if (item_style->flex_justify_content_ ==
                CSSFLEX_JUSTIFY_FLEX_CENTER) {
-      int interval = round(
+      adjust_width_start = round(
           (float)(available_width - total_use_width_without_absolute) / 2.0f);
-      adjust_width_start = rflag ? interval : available_width - interval;
     } else if (total_use_width_without_absolute <= available_width &&
                item_style->flex_justify_content_ ==
                    CSSFLEX_JUSTIFY_SPACE_BETWEEN) {
-      // space-between等间距铺开，interval数量=item数量-1，
-      // 计算interval，不需要修改width_start
       if (current_row_without_absolute_count > 1) {
         adjust_width_interval = round(
             ((float)(available_width - total_use_width_without_absolute)) /
@@ -887,40 +884,22 @@ void CSSStaticLayout::LayoutRowOneLine(LayoutObject* renderer,
     } else if (total_use_width_without_absolute <= available_width &&
                item_style->flex_justify_content_ ==
                    CSSFLEX_JUSTIFY_SPACE_AROUND) {
-      // space-around两边有1/2大小的interval，
-      // 分别计算interval和start
       float interval =
           ((float)(available_width - total_use_width_without_absolute)) /
           (current_row_without_absolute_count * 2);
-      adjust_width_start =
-          rflag ? round(interval) : available_width - round(interval);
+      adjust_width_start = round(interval);
       adjust_width_interval = round(interval * 2);
     }
   }
 
-  // 防止有absolute的孩子导致第一个布局的孩子判断不准确
-  int first_show_index = 0;
-  int child_origin_x = 0;
-  if (rflag) {
-    child_origin_x = adjust_width_start + item_style->padding_left_ +
-                     item_style->border_width_;
-  } else {
-    child_origin_x = adjust_width_start - item_style->padding_right_ -
-                     item_style->border_width_;
-  }
+  int child_origin_x = adjust_width_start + item_style->padding_left_ +
+                       item_style->border_width_;
   int child_origin_y = item_style->padding_top_ + item_style->border_width_;
-  for (int i = 0, size = renderer->GetChildCount(); i < size; i++) {
-    LayoutObject* child = (LayoutObject*)renderer->Find(i);
+
+  for (LayoutObject* child : child_list) {
     const CSSStyle* child_style = &(child->css_style());
 
     int align = item_style->flex_align_items_;
-
-    if (child_style->css_position_type_ == CSS_POSITION_ABSOLUTE ||
-        child_style->css_position_type_ == CSS_POSITION_FIXED ||
-        child_style->css_display_type_ != CSS_DISPLAY_FLEX) {
-      first_show_index++;
-      continue;
-    }
 
     if (child_style->flex_align_self_ != CSSFLEX_ALIGN_AUTO) {
       align = child_style->flex_align_self_;
@@ -928,61 +907,38 @@ void CSSStaticLayout::LayoutRowOneLine(LayoutObject* renderer,
 
     int old_child_origin_y = child_origin_y;
 
-    if (rflag) {
-      child_origin_x += child_style->margin_left_;
-    } else {
-      child_origin_x -= child_style->margin_right_;
-    }
-
-    if (i > first_show_index) {
-      if (rflag) {
-        child_origin_x += adjust_width_interval;
-      } else {
-        child_origin_x -= adjust_width_interval;
-      }
-    }
-
+    child_origin_x += child_style->margin_left_;
+    if (child != child_list[0])
+      child_origin_x += adjust_width_interval;
     child_origin_y += child_style->margin_top_;
 
     int adjust_y = 0;
     int adjust_height = CSS_UNDEFINED;
-    if (align == CSSFLEX_ALIGN_FLEX_START ||
-        align == CSSFLEX_ALIGN_FLEX_START) {
+    if (align == CSSFLEX_ALIGN_FLEX_START) {
       // do nothing
-    } else if (align == CSSFLEX_ALIGN_FLEX_END ||
-               align == CSSFLEX_ALIGN_FLEX_END) {
+    } else if (align == CSSFLEX_ALIGN_FLEX_END) {
       adjust_y = available_height - child_style->margin_bottom_ -
                  child->measured_size_.height_;
-    } else if (align == CSSFLEX_ALIGN_STRETCH ||
-               align == CSSFLEX_ALIGN_STRETCH) {
+    } else if (align == CSSFLEX_ALIGN_STRETCH) {
       if (CSS_IS_UNDEFINED(child_style->height_)) {
         adjust_height = available_height - child_style->margin_top_ -
                         child_style->margin_bottom_;
         adjust_height = child->css_style().ClampHeight(adjust_height);
       }
-    } else if (align == CSSFLEX_ALIGN_CENTER || align == CSSFLEX_ALIGN_CENTER) {
+    } else if (align == CSSFLEX_ALIGN_CENTER) {
       adjust_y = round(
           (float)(available_height - child->measured_size_.height_) / 2.0f);
     }
 
-    int l =
-        rflag ? child_origin_x : child_origin_x - child->measured_size_.width_;
+    int l = child_origin_x;
     int t = adjust_y + child_origin_y;
-    int r =
-        rflag ? child_origin_x + child->measured_size_.width_ : child_origin_x;
+    int r = child_origin_x + child->measured_size_.width_;
     int b = CSS_IS_UNDEFINED(adjust_height)
                 ? child_origin_y + child->measured_size_.height_ + adjust_y
                 : child_origin_y + adjust_height;
     child->Layout(l, t, r, b);
 
-    if (rflag) {
-      child_origin_x +=
-          child->measured_size_.width_ + child_style->margin_right_;
-    } else {
-      child_origin_x -=
-          (child->measured_size_.width_ + child_style->margin_left_);
-    }
-
+    child_origin_x += child->measured_size_.width_ + child_style->margin_right_;
     child_origin_y = old_child_origin_y;
   }
 }
@@ -1015,47 +971,65 @@ void CSSStaticLayout::LayoutColumnWrap(LayoutObject* renderer,
 
   int current_column_without_absolute_count = 0;
   int total_use_height_without_absolute = 0;
+
   // rflag判断是否为reverse
-  bool rflag =
-      item_style->flex_direction_ == CSSFLEX_DIRECTION_COLUMN ? true : false;
+  bool rflag = item_style->flex_direction_ == CSSFLEX_DIRECTION_COLUMN_REVERSE
+                   ? true
+                   : false;
 
   int start = 0;
-  int size = renderer->GetChildCount();
   int total_used_width = 0;
 
   int current_line_width = 0;
   bool is_line_feed = false;
 
-  for (int index = 0; index < size; index++) {
+  // child_list中所有flex-item
+  vector<LayoutObject*> child_list;
+  child_list.reserve(renderer->GetChildCount());
+  for (int index = 0, child_view_count = renderer->GetChildCount();
+       index < child_view_count; index++) {
     LayoutObject* child = (LayoutObject*)renderer->Find(index);
     const CSSStyle* child_style = &(child->css_style());
 
-    bool child_should_pass = false;
-    int oldTotalUseHeightWithoutAbsolute = total_use_height_without_absolute;
     if (child_style->css_display_type_ != CSS_DISPLAY_FLEX) {
       child->Layout(0, 0, 0, 0);
-      child_should_pass = true;
+      continue;
     }
     if (child_style->css_position_type_ == CSS_POSITION_ABSOLUTE) {
       LayoutAbsolute(renderer, child, width, height);
-      child_should_pass = true;
+      continue;
     }
     if (child_style->css_position_type_ == CSS_POSITION_FIXED) {
       LayoutFixed(renderer, child);
-      child_should_pass = true;
+      continue;
     }
+    child_list.push_back(child);
+    current_column_without_absolute_count++;
+  }
+  child_list.resize(current_column_without_absolute_count);
+  current_column_without_absolute_count = 0;
 
-    if (!child_should_pass) {
-      current_column_without_absolute_count++;
-      if (!CSS_IS_UNDEFINED(child_style->height_)) {
-        total_use_height_without_absolute += child_style->height_ +
-                                             child_style->margin_top_ +
-                                             child_style->margin_bottom_;
-      } else {
-        total_use_height_without_absolute += child->measured_size_.height_ +
-                                             child_style->margin_top_ +
-                                             child_style->margin_bottom_;
-      }
+  //order排序，reverse翻转
+  sort(child_list.begin(),child_list.end(),CompareFlexOrder);
+  if (rflag)
+    reverse(child_list.begin(), child_list.end());
+
+  for (int index = 0, child_view_count = child_list.size();
+       index < child_view_count; index++) {
+    LayoutObject* child = child_list[index];
+    const CSSStyle* child_style = &(child->css_style());
+
+    int oldTotalUseHeightWithoutAbsolute = total_use_height_without_absolute;
+    current_column_without_absolute_count++;
+
+    if (!CSS_IS_UNDEFINED(child_style->height_)) {
+      total_use_height_without_absolute += child_style->height_ +
+                                           child_style->margin_top_ +
+                                           child_style->margin_bottom_;
+    } else {
+      total_use_height_without_absolute += child->measured_size_.height_ +
+                                           child_style->margin_top_ +
+                                           child_style->margin_bottom_;
     }
 
     if (total_use_height_without_absolute <= available_height) {
@@ -1067,10 +1041,7 @@ void CSSStaticLayout::LayoutColumnWrap(LayoutObject* renderer,
 
     // 遍历到最后一个孩子的时候，不可以跳过layout previous
     // child的操作，否则之前的孩子不能排版
-    bool is_last_view = (index == size - 1);
-    if (child_should_pass && !is_last_view) {
-      continue;
-    }
+    bool is_last_view = (index == child_view_count - 1);
 
     if (total_use_height_without_absolute > available_height || is_last_view) {
       if (total_use_height_without_absolute > available_height &&
@@ -1083,22 +1054,23 @@ void CSSStaticLayout::LayoutColumnWrap(LayoutObject* renderer,
         current_line_width = available_width;
       }
 
-      int adjust_height_start = rflag ? 0 : available_height;
+      int adjust_height_start = 0;
       int adjust_height_interval = 0;
       if (current_column_without_absolute_count > 0) {
-        if (item_style->flex_justify_content_ == CSSFLEX_JUSTIFY_FLEX_START) {
-          // no action
-        } else if (item_style->flex_justify_content_ ==
-                   CSSFLEX_JUSTIFY_FLEX_END) {
+        if (item_style->flex_justify_content_ == CSSFLEX_JUSTIFY_FLEX_START &&
+            rflag) {
           adjust_height_start =
-              rflag ? available_height - total_use_height_without_absolute
-                    : total_use_height_without_absolute;
+              available_height - total_use_height_without_absolute;
+        } else if (item_style->flex_justify_content_ ==
+                       CSSFLEX_JUSTIFY_FLEX_END &&
+                   !rflag) {
+          adjust_height_start =
+              available_height - total_use_height_without_absolute;
         } else if (item_style->flex_justify_content_ ==
                    CSSFLEX_JUSTIFY_FLEX_CENTER) {
-          int interval = round(
+          adjust_height_start = round(
               (float)(available_height - total_use_height_without_absolute) /
               2.0f);
-          adjust_height_start = rflag ? interval : available_height - interval;
         } else if (total_use_height_without_absolute <= available_height &&
                    item_style->flex_justify_content_ ==
                        CSSFLEX_JUSTIFY_SPACE_BETWEEN) {
@@ -1114,8 +1086,7 @@ void CSSStaticLayout::LayoutColumnWrap(LayoutObject* renderer,
           float interval =
               ((float)(available_height - total_use_height_without_absolute)) /
               (current_column_without_absolute_count * 2);
-          adjust_height_start =
-              rflag ? round(interval) : available_height - round(interval);
+          adjust_height_start = round(interval);
           adjust_height_interval = round(interval * 2);
         }
       }
@@ -1123,28 +1094,13 @@ void CSSStaticLayout::LayoutColumnWrap(LayoutObject* renderer,
       int maxWidth = 0;
       int child_origin_x = item_style->padding_left_ +
                            item_style->border_width_ + total_used_width;
-      int child_origin_y = 0;
-      if (rflag) {
-        child_origin_y = item_style->padding_top_ + item_style->border_width_ +
-                         adjust_height_start;
-      } else {
-        child_origin_y = adjust_height_start - item_style->padding_bottom_ -
-                         item_style->border_width_;
-      }
+      int child_origin_y = item_style->padding_top_ +
+                           item_style->border_width_ + adjust_height_start;
       for (int i = start; i <= index; i++) {
-        LayoutObject* recalc_child = (LayoutObject*)renderer->Find(i);
+        LayoutObject* recalc_child = child_list[i];
         const CSSStyle* recalc_child_style = &(recalc_child->css_style());
 
         int align = item_style->flex_align_items_;
-
-        if (recalc_child_style->css_display_type_ != CSS_DISPLAY_FLEX) {
-          recalc_child->Layout(0, 0, 0, 0);
-          continue;
-        }
-        if (recalc_child_style->css_position_type_ == CSS_POSITION_ABSOLUTE ||
-            recalc_child_style->css_position_type_ == CSS_POSITION_FIXED) {
-          continue;
-        }
 
         if (recalc_child_style->flex_align_self_ != CSSFLEX_ALIGN_AUTO) {
           align = recalc_child_style->flex_align_self_;
@@ -1153,56 +1109,42 @@ void CSSStaticLayout::LayoutColumnWrap(LayoutObject* renderer,
         int old_child_origin_x = child_origin_x;
 
         child_origin_x += recalc_child_style->margin_left_;
-        if (rflag) {
-          child_origin_y += recalc_child_style->margin_top_;
-        } else {
-          child_origin_y -= recalc_child_style->margin_bottom_;
-        }
+        child_origin_y += recalc_child_style->margin_top_;
         if (i > start)
           child_origin_y += adjust_height_interval;
 
         int adjust_x = 0;
         int adjust_width = CSS_UNDEFINED;
-        if (align == CSSFLEX_ALIGN_FLEX_START ||
-            align == CSSFLEX_ALIGN_FLEX_START) {
+        if (align == CSSFLEX_ALIGN_FLEX_START) {
           // do nothing
-        } else if (align == CSSFLEX_ALIGN_FLEX_END ||
-                   align == CSSFLEX_ALIGN_FLEX_END) {
+        } else if (align == CSSFLEX_ALIGN_FLEX_END) {
           adjust_x = current_line_width - recalc_child_style->margin_right_ -
                      recalc_child->measured_size_.width_;
-        } else if (align == CSSFLEX_ALIGN_STRETCH ||
-                   align == CSSFLEX_ALIGN_STRETCH) {
+        } else if (align == CSSFLEX_ALIGN_STRETCH) {
           adjust_width = current_line_width -
                          recalc_child_style->margin_right_ -
                          recalc_child_style->margin_left_;
           adjust_width = recalc_child->css_style().ClampWidth(adjust_width);
-        } else if (align == CSSFLEX_ALIGN_CENTER ||
-                   align == CSSFLEX_ALIGN_CENTER) {
-          adjust_x = (current_line_width - recalc_child_style->margin_right_ -
-                      recalc_child_style->margin_left_ -
-                      recalc_child->measured_size_.width_) /
-                     2;
+        } else if (align == CSSFLEX_ALIGN_CENTER) {
+          adjust_x = round((float)(current_line_width -
+                                   recalc_child_style->margin_right_ -
+                                   recalc_child_style->margin_left_ -
+                                   recalc_child->measured_size_.width_) /
+                           2.0f);
         }
 
         int l = child_origin_x + adjust_x;
-        int t = rflag ? child_origin_y
-                      : child_origin_y - recalc_child->measured_size_.height_;
+        int t = child_origin_y;
         int r = CSS_IS_UNDEFINED(adjust_width)
                     ? l + recalc_child->measured_size_.width_
                     : l + adjust_width;
-        int b =
-            rflag ? t + recalc_child->measured_size_.height_ : child_origin_y;
+        int b = t + recalc_child->measured_size_.height_;
 
         recalc_child->Layout(l, t, r, b);
 
         child_origin_x = old_child_origin_x;
-        if (rflag) {
-          child_origin_y += recalc_child->measured_size_.height_ +
-                            recalc_child_style->margin_bottom_;
-        } else {
-          child_origin_y -= (recalc_child->measured_size_.height_ +
-                             recalc_child_style->margin_top_);
-        }
+        child_origin_y += recalc_child->measured_size_.height_ +
+                          recalc_child_style->margin_bottom_;
         int child_item_width = (r - l) + recalc_child_style->margin_left_ +
                                recalc_child_style->margin_right_;
         maxWidth = maxWidth < child_item_width ? child_item_width : maxWidth;
@@ -1232,11 +1174,14 @@ void CSSStaticLayout::LayoutColumnOneLine(LayoutObject* renderer,
 
   int current_column_without_absolute_count = 0;
   int total_use_height_without_absolute = 0;
-  bool rflag =
-      item_style->flex_direction_ == CSSFLEX_DIRECTION_COLUMN ? true : false;
+  // child_list中所有flex-item
+  vector<LayoutObject*> child_list;
+  child_list.reserve(renderer->GetChildCount());
 
-  for (int i = 0, size = renderer->GetChildCount(); i < size; i++) {
-    LayoutObject* child = (LayoutObject*)renderer->Find(i);
+  // 计算所有flex-item的总width
+  for (int index = 0, child_view_count = renderer->GetChildCount();
+       index < child_view_count; index++) {
+    LayoutObject* child = (LayoutObject*)renderer->Find(index);
     const CSSStyle* child_style = &(child->css_style());
     if (child_style->css_display_type_ != CSS_DISPLAY_FLEX) {
       child->Layout(0, 0, 0, 0);
@@ -1250,26 +1195,38 @@ void CSSStaticLayout::LayoutColumnOneLine(LayoutObject* renderer,
       LayoutFixed(renderer, child);
       continue;
     }
+    child_list.push_back(child);
     current_column_without_absolute_count++;
     total_use_height_without_absolute += child->measured_size_.height_ +
                                          child->css_style().margin_top_ +
                                          child->css_style().margin_bottom_;
   }
+  child_list.resize(current_column_without_absolute_count);
+  // rflag
+  bool rflag = item_style->flex_direction_ == CSSFLEX_DIRECTION_COLUMN_REVERSE
+                   ? true
+                   : false;
 
-  int adjust_height_start = rflag ? 0 : available_height;
+  //order排序，reverse翻转
+  sort(child_list.begin(),child_list.end(),CompareFlexOrder);
+  if (rflag)
+    reverse(child_list.begin(), child_list.end());
+
+  int adjust_height_start = 0;
   int adjust_height_interval = 0;
   if (current_column_without_absolute_count > 0) {
-    if (item_style->flex_justify_content_ == CSSFLEX_JUSTIFY_FLEX_START) {
-      // no action
-    } else if (item_style->flex_justify_content_ == CSSFLEX_JUSTIFY_FLEX_END) {
+    if (item_style->flex_justify_content_ == CSSFLEX_JUSTIFY_FLEX_START &&
+        rflag) {
       adjust_height_start =
-          rflag ? available_height - total_use_height_without_absolute
-                : total_use_height_without_absolute;
+          available_height - total_use_height_without_absolute;
+    } else if (item_style->flex_justify_content_ == CSSFLEX_JUSTIFY_FLEX_END &&
+               !rflag) {
+      adjust_height_start =
+          available_height - total_use_height_without_absolute;
     } else if (item_style->flex_justify_content_ ==
                CSSFLEX_JUSTIFY_FLEX_CENTER) {
-      int interval = round(
+      adjust_height_start = round(
           (float)(available_height - total_use_height_without_absolute) / 2.0f);
-      adjust_height_start = rflag ? interval : available_height - interval;
     } else if (total_use_height_without_absolute <= available_height &&
                item_style->flex_justify_content_ ==
                    CSSFLEX_JUSTIFY_SPACE_BETWEEN) {
@@ -1284,35 +1241,18 @@ void CSSStaticLayout::LayoutColumnOneLine(LayoutObject* renderer,
       float interval =
           ((float)(available_height - total_use_height_without_absolute)) /
           (current_column_without_absolute_count * 2);
-      adjust_height_start =
-          rflag ? round(interval) : available_height - round(interval);
+      adjust_height_start = round(interval);
       adjust_height_interval = round(interval * 2);
     }
   }
 
-  // 防止有absolute的孩子导致第一个布局的孩子判断不准确
-  int first_show_index = 0;
   int child_origin_x = item_style->padding_left_ + item_style->border_width_;
-  int child_origin_y = 0;
-  if (rflag) {
-    child_origin_y = item_style->padding_top_ + item_style->border_width_ +
-                     adjust_height_start;
-  } else {
-    child_origin_y = adjust_height_start - item_style->padding_top_ -
-                     item_style->border_width_;
-  }
-  for (int i = 0, size = renderer->GetChildCount(); i < size; i++) {
-    LayoutObject* child = (LayoutObject*)renderer->Find(i);
+  int child_origin_y = item_style->padding_top_ + item_style->border_width_ +
+                       adjust_height_start;
+  for (LayoutObject* child : child_list) {
     const CSSStyle* child_style = &(child->css_style());
 
     int align = item_style->flex_align_items_;
-
-    if (child_style->css_position_type_ == CSS_POSITION_ABSOLUTE ||
-        child_style->css_position_type_ == CSS_POSITION_FIXED ||
-        child_style->css_display_type_ != CSS_DISPLAY_FLEX) {
-      first_show_index++;
-      continue;
-    }
 
     if (child_style->flex_align_self_ != CSSFLEX_ALIGN_AUTO) {
       align = child_style->flex_align_self_;
@@ -1320,18 +1260,9 @@ void CSSStaticLayout::LayoutColumnOneLine(LayoutObject* renderer,
     int old_child_origin_x = child_origin_x;
 
     child_origin_x += child_style->margin_left_;
-    if (rflag) {
-      child_origin_y += child_style->margin_top_;
-    } else {
-      child_origin_y -= child_style->margin_bottom_;
-    }
-    if (i > first_show_index) {
-      if (rflag) {
-        child_origin_y += adjust_height_interval;
-      } else {
-        child_origin_y -= adjust_height_interval;
-      }
-    }
+    child_origin_y += child_style->margin_top_;
+    if (child != child_list[0])
+      child_origin_y += adjust_height_interval;
 
     int adjust_x = 0;
     int adjust_width = CSS_UNDEFINED;
@@ -1353,24 +1284,17 @@ void CSSStaticLayout::LayoutColumnOneLine(LayoutObject* renderer,
     }
 
     int l = adjust_x + child_origin_x;
-    int t =
-        rflag ? child_origin_y : child_origin_y - child->measured_size_.height_;
+    int t = child_origin_y;
     int r = CSS_IS_UNDEFINED(adjust_width)
                 ? child_origin_x + child->measured_size_.width_ + adjust_x
                 : adjust_width + child_origin_x;
-    int b =
-        rflag ? child_origin_y + child->measured_size_.height_ : child_origin_y;
+    int b = child_origin_y + child->measured_size_.height_;
 
     child->Layout(l, t, r, b);
 
     child_origin_x = old_child_origin_x;
-    if (rflag) {
-      child_origin_y +=
-          child->measured_size_.height_ + child_style->margin_bottom_;
-    } else {
-      child_origin_y -=
-          (child->measured_size_.height_ + child_style->margin_top_);
-    }
+    child_origin_y +=
+        child->measured_size_.height_ + child_style->margin_bottom_;
   }
 }
 

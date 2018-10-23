@@ -35,21 +35,24 @@ enum CSSStyleType {
 
   CSSFLEX_WRAP = 16,
   CSSFLEX_NOWRAP = 17,
+  CSSFLEX_WRAP_REVERSE = 18,
 
-  CSS_POSITION_RELATIVE = 18,
-  CSS_POSITION_ABSOLUTE = 19,
-  CSS_POSITION_FIXED = 20,
+  CSSFLEX_ORDER = 19,
 
-  CSS_VISIBLE = 21,
-  CSS_HIDDEN = 22,
+  CSS_POSITION_RELATIVE = 20,
+  CSS_POSITION_ABSOLUTE = 21,
+  CSS_POSITION_FIXED = 22,
 
-  CSS_POINTER_EVENTS_NONE = 23,
-  CSS_POINTER_EVENTS_AUTO = 24,
+  CSS_VISIBLE = 23,
+  CSS_HIDDEN = 24,
 
-  CSS_BACKGROUND_REPEAT = 25,
-  CSS_BACKGROUND_REPEAT_X = 26,
-  CSS_BACKGROUND_REPEAT_Y = 27,
-  CSS_BACKGROUND_NO_REPEAT = 28
+  CSS_POINTER_EVENTS_NONE = 25,
+  CSS_POINTER_EVENTS_AUTO = 26,
+
+  CSS_BACKGROUND_REPEAT = 27,
+  CSS_BACKGROUND_REPEAT_X = 28,
+  CSS_BACKGROUND_REPEAT_Y = 29,
+  CSS_BACKGROUND_NO_REPEAT = 30
 };
 
 enum TextStyleType {
@@ -87,6 +90,8 @@ bool ToFlexDirectionType(const std::string& value, CSSStyleType& type);
 bool ToFlexJustifyType(const std::string& value, CSSStyleType& type);
 
 bool ToFlexWrapType(const std::string& value, CSSStyleType& type);
+
+bool ToFlexOrder(const std::string& value, CSSStyleType& type);
 
 bool ToPositionType(const std::string& value, CSSStyleType& type);
 

@@ -268,6 +268,14 @@ class CSSStyle {
     }
   }
 
+  void SetFlexOrder(const std::string& value){
+    double flex_order = 0;
+    if(UNLIKELY(!base::StringToDouble(value, flex_order))){
+      flex_order = 0;
+    }
+    flex_order_ = round(flex_order);
+  }
+
   void SetPositionType(const std::string& value) {
     if (UNLIKELY(!ToPositionType(value, css_position_type_))) {
     }
@@ -433,6 +441,7 @@ class CSSStyle {
   CSSStyleType flex_wrap_;
   CSSStyleType flex_justify_content_;
   CSSStyleType flex_align_items_;
+  double flex_order_;
 
   // CSSFlexAlign     mFlexAlignContents;
   CSSStyleType flex_align_self_;
