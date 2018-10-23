@@ -597,19 +597,18 @@ void CSSStaticLayout::LayoutRow(LayoutObject* renderer, int width, int height) {
   const CSSStyle* item_style = &(renderer->css_style());
   if (item_style->flex_wrap_ == CSSFLEX_NOWRAP) {
     LayoutRowOneLine(renderer, width, height);
-  } else if (item_style->flex_wrap_ == CSSFLEX_WRAP) {
+  } else if (item_style->flex_wrap_ == CSSFLEX_WRAP ||
+             item_style->flex_wrap_ == CSSFLEX_WRAP_REVERSE) {
     LayoutRowWrap(renderer, width, height);
-  } else {
-    /*warp-reverse*/
   }
 }
 
-// flex-wrap:wrap; flex-direction:row & row-reverse
+// flex-wrap:wrap & wrap-reverse; flex-direction:row & row-reverse
 void CSSStaticLayout::LayoutRowWrap(LayoutObject* renderer,
                                     int width,
                                     int height) {
   const CSSStyle* item_style = &(renderer->css_style());
-
+  // 可用宽高为去除padding和border之后的宽高
   int available_width = width - item_style->padding_left_ -
                         item_style->padding_right_ -
                         item_style->border_width_ * 2;
@@ -620,10 +619,12 @@ void CSSStaticLayout::LayoutRowWrap(LayoutObject* renderer,
   int current_row_without_absolute_count = 0;
   int total_use_width_without_absolute = 0;
 
-  // rflag用来判断是否是reverse
+  // rflag用来判断是否是row-reverse
   bool rflag = item_style->flex_direction_ == CSSFLEX_DIRECTION_ROW_REVERSE
                    ? true
                    : false;
+  // wrflag用来判断是否是wrap-reverse
+  bool wrflag = item_style->flex_wrap_ == CSSFLEX_WRAP_REVERSE ? true : false;
 
   int start = 0;
   int total_used_height = 0;
@@ -634,7 +635,6 @@ void CSSStaticLayout::LayoutRowWrap(LayoutObject* renderer,
   // child_list中所有flex-item
   vector<LayoutObject*> child_list;
   child_list.reserve(renderer->GetChildCount());
-  // 计算所有flex-item的总width
   for (int index = 0, child_view_count = renderer->GetChildCount();
        index < child_view_count; index++) {
     LayoutObject* child = (LayoutObject*)renderer->Find(index);
@@ -735,10 +735,14 @@ void CSSStaticLayout::LayoutRowWrap(LayoutObject* renderer,
       int max_height = 0;
       int child_origin_x = item_style->padding_left_ +
                            item_style->border_width_ + adjust_width_start;
-      int child_origin_y = item_style->padding_top_ +
-                           item_style->border_width_ + total_used_height;
+      // origin_y:wrap时为一行元素的top,padding-top + border-top + 已用行高
+      // wrap-reverse时为一行元素的bottom,即
+      // padding-top + border-top + available-height - 已用行高
+      int child_origin_y =
+          item_style->padding_top_ + item_style->border_width_ +
+          (!wrflag ? total_used_height : available_height - total_used_height);
 
-      // row-reverse时，翻转一行中所有元素
+      // reverse时翻转当前行元素
       if (rflag)
         reverse(child_list.begin() + start, child_list.begin() + index + 1);
       for (int i = start; i <= index; i++) {
@@ -754,7 +758,9 @@ void CSSStaticLayout::LayoutRowWrap(LayoutObject* renderer,
         int old_child_origin_y = child_origin_y;
 
         child_origin_x += recalc_child_style->margin_left_;
-        child_origin_y += recalc_child_style->margin_top_;
+        // wrap时加元素的margin-top, wrap-reverse时减元素的margin-bottom
+        child_origin_y += (!wrflag ? recalc_child_style->margin_top_
+                                   : -recalc_child_style->margin_bottom_);
         if (i > start)
           child_origin_x += adjust_width_interval;
 
@@ -781,11 +787,21 @@ void CSSStaticLayout::LayoutRowWrap(LayoutObject* renderer,
         }
 
         int l = child_origin_x;
-        int t = child_origin_y + adjust_y;
         int r = l + recalc_child->measured_size_.width_;
-        int b = CSS_IS_UNDEFINED(adjust_height)
-                    ? t + recalc_child->measured_size_.height_
-                    : t + adjust_height;
+        // wrap时，先计算t，再计算b
+        // wrap-reverse时，先计算b，再计算t
+        int t = 0, b = 0;
+        if (!wrflag) {
+          t = child_origin_y + adjust_y;
+          b = CSS_IS_UNDEFINED(adjust_height)
+                  ? t + recalc_child->measured_size_.height_
+                  : t + adjust_height;
+        } else {
+          b = child_origin_y - adjust_y;
+          t = CSS_IS_UNDEFINED(adjust_height)
+                  ? b - recalc_child->measured_size_.height_
+                  : b - adjust_height;
+        }
 
         recalc_child->Layout(l, t, r, b);
 
@@ -950,10 +966,9 @@ void CSSStaticLayout::LayoutColumn(LayoutObject* renderer,
   const CSSStyle* item_style = &(renderer->css_style());
   if (item_style->flex_wrap_ == CSSFLEX_NOWRAP) {
     LayoutColumnOneLine(renderer, width, height);
-  } else if (item_style->flex_wrap_ == CSSFLEX_WRAP) {
+  } else if (item_style->flex_wrap_ == CSSFLEX_WRAP ||
+             item_style->flex_wrap_ == CSSFLEX_WRAP_REVERSE) {
     LayoutColumnWrap(renderer, width, height);
-  } else {
-    /*wrap-reverse*/
   }
 }
 
@@ -977,6 +992,8 @@ void CSSStaticLayout::LayoutColumnWrap(LayoutObject* renderer,
   bool rflag = item_style->flex_direction_ == CSSFLEX_DIRECTION_COLUMN_REVERSE
                    ? true
                    : false;
+  // wrflag用来判断是否是wrap-reverse
+  bool wrflag = item_style->flex_wrap_ == CSSFLEX_WRAP_REVERSE ? true : false;
 
   int start = 0;
   int total_used_width = 0;
@@ -1091,12 +1108,16 @@ void CSSStaticLayout::LayoutColumnWrap(LayoutObject* renderer,
       }
 
       int maxWidth = 0;
-      int child_origin_x = item_style->padding_left_ +
-                           item_style->border_width_ + total_used_width;
+      // origin_x:wrap时为一列元素的left,padding-left + border-left + 已用列宽
+      // wrap-reverse时为一列元素的right,即
+      // padding-left + border-left + available-width - 已用列宽
+      int child_origin_x =
+          item_style->padding_left_ + item_style->border_width_ +
+          (!wrflag ? total_used_width : available_width - total_used_width);
       int child_origin_y = item_style->padding_top_ +
                            item_style->border_width_ + adjust_height_start;
 
-      // column-reverse时，翻转一列中所有元素
+      // reverse时翻转当前列元素
       if (rflag)
         reverse(child_list.begin() + start, child_list.begin() + index + 1);
       for (int i = start; i <= index; i++) {
@@ -1110,8 +1131,9 @@ void CSSStaticLayout::LayoutColumnWrap(LayoutObject* renderer,
         }
 
         int old_child_origin_x = child_origin_x;
-
-        child_origin_x += recalc_child_style->margin_left_;
+        // wrap时加元素的margin-left, wrap-reverse时减元素的margin-right
+        child_origin_x += (!wrflag ? recalc_child_style->margin_left_
+                                   : -recalc_child_style->margin_right_);
         child_origin_y += recalc_child_style->margin_top_;
         if (i > start)
           child_origin_y += adjust_height_interval;
@@ -1136,12 +1158,20 @@ void CSSStaticLayout::LayoutColumnWrap(LayoutObject* renderer,
                            2.0f);
         }
 
-        int l = child_origin_x + adjust_x;
+        int l = 0, r = 0;
         int t = child_origin_y;
-        int r = CSS_IS_UNDEFINED(adjust_width)
-                    ? l + recalc_child->measured_size_.width_
-                    : l + adjust_width;
         int b = t + recalc_child->measured_size_.height_;
+        if (!wrflag) {
+          l = child_origin_x + adjust_x;
+          r = CSS_IS_UNDEFINED(adjust_width)
+                  ? l + recalc_child->measured_size_.width_
+                  : l + adjust_width;
+        } else {
+          r = child_origin_x - adjust_x;
+          l = CSS_IS_UNDEFINED(adjust_width)
+                  ? r - recalc_child->measured_size_.width_
+                  : r - adjust_width;
+        }
 
         recalc_child->Layout(l, t, r, b);
 
